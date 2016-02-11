@@ -1,3 +1,15 @@
+#include <SPI.h>
+#include <Ethernet.h>
+
+byte mac[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 };
+IPAddress ip(192, 168, 2, 218);
+IPAddress gateway(192, 168, 2, 1);
+IPAddress subnet(255, 255, 255, 0);
+
+EthernetClient client;
+
+String msg, data;
+int gettime = 0;
 int relay = 8;
 String string;
 char karakter;
@@ -6,6 +18,8 @@ int hari = 1;
 long int jam, menit, detik;
 long int pukul;
 int durasi_bell = 8;
+
+long int cekjam[] = { second(0,1,0), second(6,1,0), second(12,1,0), second(18,1,0) };
 
 long int alaram[]=
 {
@@ -58,19 +72,25 @@ long int alaram[]=
 void setup()
 {
   Serial.begin(9600);
+  delay(1000);
+  Ethernet.begin(mac, ip, gateway, subnet);
+  delay(1000);
   pinMode(relay, OUTPUT);
   digitalWrite(relay, HIGH);
-  Serial.println("Ver. 2.1");
-  Serial.println("Masukkan hari.jam.menit(contoh: 7.05.10)");
-  delay(500);
+  delay(3000);
 }
 
 void loop()
 {
-  if(aktif == 0)
+  while(gettime==0)
   {
-    cek_serial();
-    return;
+    post("a");
+    delay(3000);
+  }
+  
+  while(aktif==0)
+  {
+    cek_server();
   }
   
   run_jam();
@@ -78,62 +98,93 @@ void loop()
   delay(1000);
 }
 
-void cek_serial()
+void post(String data)
 {
-  if(Serial.available())
+  //Serial.println(data);
+  Serial.println("connecting...");
+  if (client.connect("gran-handa.co.id", 80))
   {
-    karakter = (char)Serial.read();
-    if(karakter != '\n')
+    Serial.println("connected");
+    client.println("POST /arduino/hari-jam.php HTTP/1.1");
+    client.println("Host: gran-handa.co.id");
+    client.println("Content-Type: application/x-www-form-urlencoded");
+    client.print("Content-Length: ");
+    client.println(data.length());
+    client.println();
+    client.println(data);
+    gettime=1;
+  } 
+  else
+  {
+    Serial.println("connection failed");
+  }
+}
+
+void cek_server()
+{
+  if(client.available())
+  {
+    char c = client.read();
+    //Serial.print(c);
+    if(c != 'x')
     {
-      string += karakter;
+      msg += c;
     }
     else
     {
-      hari = string.substring(0).toInt();
-      jam = string.substring(2,4).toInt();
-      menit = string.substring(5).toInt();
-      detik = 0;
-      Serial.println("Setting Jam Berhasil");
-      switch (hari)
+      if(msg.startsWith("data"))
       {
-        case 1 :
-        Serial.print("Senin, ");
-        break;
+        //Serial.println(msg.substring(4));
+        string = msg.substring(4);
+        hari = string.substring(0,1).toInt();
+        jam = string.substring(2,4).toInt();
+        menit = string.substring(5,7).toInt();
+        detik = string.substring(8).toInt();
+        detik = detik;
+        Serial.println("Setting Jam Berhasil");
+        switch (hari)
+        {
+          case 1 :
+          Serial.print("Senin, ");
+          break;
         
-        case 2 :
-        Serial.print("Selasa, ");
-        break;
+          case 2 :
+          Serial.print("Selasa, ");
+          break;
         
-        case 3 :
-        Serial.print("Rabu, ");
-        break;
+          case 3 :
+          Serial.print("Rabu, ");
+          break;
         
-        case 4 :
-        Serial.print("Kamis, ");
-        break;
+          case 4 :
+          Serial.print("Kamis, ");
+          break;
         
-        case 5 :
-        Serial.print("Jumat, ");
-        break;
+          case 5 :
+          Serial.print("Jumat, ");
+          break;
         
-        case 6 :
-        Serial.print("Sabtu, ");
-        break;
+          case 6 :
+          Serial.print("Sabtu, ");
+          break;
         
-        case 7 :
-        Serial.print("Minggu, ");
-        break;
+          case 7 :
+          Serial.print("Minggu, ");
+          break;
+        }
         
-        
+        client.stop();
+        //Serial.println("disconnected.");
+        Serial.print(jam);
+        Serial.print(":");
+        Serial.print(menit);
+        Serial.print(":");
+        Serial.println(detik);
+        pukul = second(jam,menit,detik);
+        pukul = pukul + 10;
+        aktif = 1;
       }
-      Serial.print(jam);
-      Serial.print(":");
-      Serial.print(menit);
-      Serial.print(":");
-      Serial.println(detik);
-      pukul = second(jam,menit,detik);
-      aktif = 1;
-      string = "";
+      msg = "";
     }
   }
 }
@@ -200,6 +251,17 @@ void run_jam()
 
 void cek_alaram()
 {
+  int j = 0;
+  while (j<4)
+  {
+    if(pukul == cekjam[j])
+    {
+      gettime = 0;
+      aktif = 0;
+    }
+    j++;
+  }
+  
   int i = 0;
   while (i<29)
   {
@@ -215,14 +277,14 @@ void cek_alaram()
     {
       digitalWrite(relay, LOW);
       //Serial.println("Bel ON");
-      return;
+      //return;
     }
     
     if (pukul == ( alaram[i] + durasi_bell ))
     {
       digitalWrite(relay, HIGH);
       //Serial.println("Bel OFF");
-      return;
+      //return;
     }
     
     i++;
